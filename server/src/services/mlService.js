@@ -35,8 +35,22 @@ async function parseJsonResponse(response) {
   }
 }
 
-async function tryRequest(baseUrl, path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, options);
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function tryRequest(baseUrl, path, options = {}, timeoutMs = 20000) {
+  const response = await fetchWithTimeout(`${baseUrl}${path}`, options, timeoutMs);
   const data = await parseJsonResponse(response);
 
   if (!response.ok) {
@@ -48,18 +62,21 @@ async function tryRequest(baseUrl, path, options = {}) {
   return data;
 }
 
-async function callMlService(path, options = {}) {
+async function callMlService(path, options = {}, requestConfig = {}) {
   const candidates = buildMlServiceCandidates();
+  const attempts = requestConfig.attempts || 3;
+  const timeoutMs = requestConfig.timeoutMs || 20000;
+  const baseDelayMs = requestConfig.baseDelayMs || 2000;
   let lastError = null;
 
   for (const candidate of candidates) {
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
-        return await tryRequest(candidate, path, options);
+        return await tryRequest(candidate, path, options, timeoutMs);
       } catch (error) {
         lastError = error;
-        if (attempt < 3) {
-          await sleep(2000 * attempt);
+        if (attempt < attempts) {
+          await sleep(baseDelayMs * attempt);
         }
       }
     }
@@ -74,12 +91,23 @@ export function fetchMetadata() {
   return callMlService("/metadata");
 }
 
-export function fetchPrediction(payload) {
-  return callMlService("/predict", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+export async function fetchPrediction(payload) {
+  // Wake the service before requesting a heavier prediction call.
+  await callMlService("/health", {}, { attempts: 2, timeoutMs: 15000, baseDelayMs: 1000 });
+
+  return callMlService(
+    "/predict",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
+    {
+      attempts: 5,
+      timeoutMs: 120000,
+      baseDelayMs: 4000,
+    },
+  );
 }
