@@ -1,4 +1,7 @@
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://127.0.0.1:8000";
+const ML_SERVICE_HOST = process.env.ML_SERVICE_HOST || "127.0.0.1";
+const ML_SERVICE_PORT = process.env.ML_SERVICE_PORT || "8000";
+const ML_SERVICE_URL =
+  process.env.ML_SERVICE_URL || `http://${ML_SERVICE_HOST}:${ML_SERVICE_PORT}`;
 
 async function callMlService(path, options = {}) {
   const response = await fetch(`${ML_SERVICE_URL}${path}`, options);

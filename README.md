@@ -74,7 +74,7 @@ npm start
 
 This runs on `http://localhost:5000`.
 
-### 3. Start the React client
+### 3. Optional standalone client dev server
 
 ```powershell
 cd client
@@ -82,6 +82,30 @@ npm start
 ```
 
 This runs on `http://localhost:5173`.
+
+You can also skip the standalone client server and open the app directly from the Express service at `http://localhost:5000`, because the Node app now serves the frontend in production style.
+
+## Deploy On Render
+
+This repository includes [render.yaml](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/render.yaml) so you can deploy the app as:
+
+- one Node web service for the API and frontend
+- one Python web service for the ML model
+
+### Before deploy
+
+1. Push the latest code to GitHub.
+2. Create a MongoDB Atlas database if you want persistent prediction history.
+3. In Render, create a new Blueprint from this GitHub repo.
+
+### Render environment values
+
+- `MONGODB_URI`: your MongoDB Atlas connection string
+- `CLIENT_ORIGIN`: your Render frontend/backend URL, for example `https://pulsepredict-api.onrender.com`
+
+### Important deployment note
+
+The large training CSV is not needed for deployment anymore. The ML service now reads symptom and label metadata from [model/metadata.json](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/model/metadata.json), which is lightweight and included in the repo.
 
 ## API Endpoints
 
@@ -103,5 +127,5 @@ Example request:
 - MongoDB is optional. If `MONGODB_URI` is not set or the connection fails, prediction history falls back to non-persistent mode.
 - The current model artifact is a TensorFlow `.h5` file, so the Python ML service uses TensorFlow to load it.
 - The same ML service also supports `model.pkl` and `model.joblib` if you swap the model later.
-- The large dataset file `Dataset/Final_Augmented_dataset_Diseases_and_Symptoms.csv` is intentionally kept out of GitHub because it exceeds GitHub's 100 MB limit. Keep it locally in the same path before running the ML service.
+- The large dataset file `Dataset/Final_Augmented_dataset_Diseases_and_Symptoms.csv` is intentionally kept out of GitHub because it exceeds GitHub's 100 MB limit.
 - This project is for educational use and not a substitute for medical diagnosis.

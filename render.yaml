@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: pulsepredict-api
+    runtime: node
+    plan: free
+    buildCommand: npm install --prefix server
+    startCommand: npm --prefix server start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.12.2
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: disease_prediction_engine
+      - key: ML_SERVICE_HOST
+        fromService:
+          name: pulsepredict-ml
+          type: web
+          property: host
+      - key: ML_SERVICE_PORT
+        fromService:
+          name: pulsepredict-ml
+          type: web
+          property: port
+
+  - type: web
+    name: pulsepredict-ml
+    runtime: python
+    plan: free
+    buildCommand: pip install -r ml_service/requirements.txt
+    startCommand: gunicorn --chdir ml_service --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /health

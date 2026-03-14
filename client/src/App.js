@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
 
-const API_BASE = "http://localhost:5000/api";
+const API_BASE =
+  globalThis.APP_CONFIG?.API_BASE ||
+  (globalThis.location?.port === "5173" ? "http://localhost:5000/api" : "/api");
 const h = React.createElement;
 
 function formatCount(value, singular, plural) {

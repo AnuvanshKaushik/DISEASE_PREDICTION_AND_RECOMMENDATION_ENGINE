@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -12,13 +13,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_DIR = BASE_DIR / "model"
 DATASET_PATH = BASE_DIR / "Dataset" / "Final_Augmented_dataset_Diseases_and_Symptoms.csv"
 DESCRIPTION_PATH = BASE_DIR / "Dataset" / "Description.csv"
+METADATA_PATH = MODEL_DIR / "metadata.json"
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
 
     model, model_type, model_path = load_model_artifact(MODEL_DIR)
-    symptoms, disease_labels = load_dataset_metadata(DATASET_PATH)
+    symptoms, disease_labels = load_dataset_metadata(DATASET_PATH, METADATA_PATH)
     descriptions = load_descriptions(DESCRIPTION_PATH)
 
     app.config["MODEL"] = model
@@ -135,7 +137,14 @@ def load_model_artifact(model_dir: Path):
     raise ValueError(f"Unsupported model format: {model_path.name}")
 
 
-def load_dataset_metadata(dataset_path: Path) -> Tuple[List[str], List[str]]:
+def load_dataset_metadata(dataset_path: Path, metadata_path: Path) -> Tuple[List[str], List[str]]:
+    if metadata_path.exists():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        symptoms = metadata.get("symptoms", [])
+        disease_labels = metadata.get("disease_labels", [])
+        if symptoms and disease_labels:
+            return symptoms, disease_labels
+
     with dataset_path.open(newline="", encoding="utf-8") as dataset_file:
         reader = csv.DictReader(dataset_file)
         if not reader.fieldnames or reader.fieldnames[0] != "diseases":
@@ -216,6 +225,6 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    host = os.getenv("ML_SERVICE_HOST", "127.0.0.1")
-    port = int(os.getenv("ML_SERVICE_PORT", "8000"))
+    host = os.getenv("ML_SERVICE_HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", os.getenv("ML_SERVICE_PORT", "8000")))
     app.run(host=host, port=port, debug=False)
