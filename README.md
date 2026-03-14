@@ -103,6 +103,10 @@ This repository includes [render.yaml](c:/Users/kaush/Downloads/Anuvansh/Disease
 - `MONGODB_URI`: your MongoDB Atlas connection string
 - `CLIENT_ORIGIN`: your Render frontend/backend URL, for example `https://pulsepredict-api.onrender.com`
 
+### Render Python version
+
+The ML service requires a TensorFlow-compatible Python version. This repo pins Render to Python `3.13.5` using [.python-version](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/.python-version) and the `PYTHON_VERSION` setting in [render.yaml](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/render.yaml).
+
 ### Important deployment note
 
 The large training CSV is not needed for deployment anymore. The ML service now reads symptom and label metadata from [model/metadata.json](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/model/metadata.json), which is lightweight and included in the repo.

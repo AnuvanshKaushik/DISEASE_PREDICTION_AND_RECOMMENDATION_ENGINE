@@ -33,3 +33,6 @@ services:
     buildCommand: pip install -r ml_service/requirements.txt
     startCommand: gunicorn --chdir ml_service --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
