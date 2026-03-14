@@ -30,6 +30,8 @@ def create_app() -> Flask:
     app.config["DISEASE_LABELS"] = disease_labels
     app.config["DESCRIPTIONS"] = descriptions
 
+    warm_up_model(model, model_type, len(symptoms))
+
     @app.get("/health")
     def health():
         return jsonify(
@@ -132,7 +134,7 @@ def load_model_artifact(model_dir: Path):
                 "TensorFlow is required to load the current .h5 model artifact."
             ) from exc
 
-        return load_model(model_path), "keras", model_path
+        return load_model(model_path, compile=False), "keras", model_path
 
     raise ValueError(f"Unsupported model format: {model_path.name}")
 
@@ -219,6 +221,14 @@ def run_inference(model, model_type: str, feature_vector: np.ndarray) -> np.ndar
     probabilities = np.zeros(len(model.classes_), dtype=np.float32)
     probabilities[class_index] = 1.0
     return probabilities
+
+
+def warm_up_model(model, model_type: str, feature_count: int) -> None:
+    try:
+        zero_vector = np.zeros((1, feature_count), dtype=np.float32)
+        run_inference(model, model_type, zero_vector)
+    except Exception as exc:  # pragma: no cover
+        print(f"Model warm-up skipped: {exc}")
 
 
 app = create_app()
