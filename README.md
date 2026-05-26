@@ -124,6 +124,29 @@ Start Command: npm --prefix server start
 
 If you already created a Python service named `disease-prediction-and-recommendation`, delete or rename that service before syncing this Blueprint, then redeploy from the Blueprint so the Node service owns that URL.
 
+## Deploy Frontend On Vercel
+
+The Vercel deployment is only the frontend. The backend still needs the Render Node service and Render ML service running.
+
+This repo includes two Vercel configs:
+
+- [vercel.json](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/vercel.json) for deployments where the Vercel project root is the repo root.
+- [client/vercel.json](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/client/vercel.json) for deployments where the Vercel project root is `client/`.
+
+Both configs proxy browser requests from:
+
+```text
+/api/*
+```
+
+to:
+
+```text
+https://disease-prediction-and-recommendation.onrender.com/api/*
+```
+
+If Vercel shows `Unexpected token 'T'`, it means `/api/metadata` returned Vercel's text 404 page instead of backend JSON. Redeploy after pushing the Vercel config files, and make sure the Render Node service is live.
+
 ### Render Python version
 
 The ML service requires a TensorFlow-compatible Python version. This repo pins Render to Python `3.13.5` using [.python-version](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/.python-version) and the `PYTHON_VERSION` setting in [render.yaml](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/render.yaml).

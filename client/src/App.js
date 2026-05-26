@@ -1,9 +1,63 @@
 import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
 
-const API_BASE =
-  globalThis.APP_CONFIG?.API_BASE ||
-  (globalThis.location?.port === "5173" ? "http://localhost:5000/api" : "/api");
+function normalizeApiBase(apiBase) {
+  return apiBase.replace(/\/+$/, "");
+}
+
+function getApiBase() {
+  if (globalThis.APP_CONFIG?.API_BASE) {
+    return normalizeApiBase(globalThis.APP_CONFIG.API_BASE);
+  }
+
+  if (globalThis.location?.port === "5173") {
+    return "http://localhost:5000/api";
+  }
+
+  return "/api";
+}
+
+const API_BASE = getApiBase();
 const h = React.createElement;
+
+async function readJson(response, fallbackMessage) {
+  const text = await response.text();
+  let payload = null;
+
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (_error) {
+      const contentType = response.headers.get("content-type") || "unknown content type";
+      const preview = text.replace(/\s+/g, " ").trim().slice(0, 120);
+      throw new Error(
+        `${fallbackMessage}. Expected JSON from ${response.url}, but received ${contentType}${preview ? `: ${preview}` : ""}`,
+      );
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error || `${fallbackMessage} (${response.status})`);
+  }
+
+  return payload;
+}
+
+async function apiGet(path, fallbackMessage) {
+  const response = await fetch(`${API_BASE}${path}`);
+  return readJson(response, fallbackMessage);
+}
+
+async function apiPost(path, payload, fallbackMessage) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response, fallbackMessage);
+}
 
 function formatCount(value, singular, plural) {
   return `${value} ${value === 1 ? singular : plural}`;
@@ -23,17 +77,10 @@ function App() {
   useEffect(() => {
     async function bootstrap() {
       try {
-        const [metadataRes, historyRes] = await Promise.all([
-          fetch(`${API_BASE}/metadata`),
-          fetch(`${API_BASE}/history`),
+        const [metadata, historyPayload] = await Promise.all([
+          apiGet("/metadata", "Unable to load metadata"),
+          apiGet("/history", "Unable to load prediction history").catch(() => []),
         ]);
-
-        const metadata = await metadataRes.json();
-        const historyPayload = await historyRes.json();
-
-        if (!metadataRes.ok) {
-          throw new Error(metadata.error || "Unable to load metadata");
-        }
 
         setSymptoms(metadata.symptoms);
         setHistory(Array.isArray(historyPayload) ? historyPayload : []);
@@ -75,18 +122,11 @@ function App() {
     setMessage("Analyzing symptom combinations and matching them with the trained model...");
 
     try {
-      const response = await fetch(`${API_BASE}/predict`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ symptoms: selectedSymptoms }),
-      });
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Prediction failed");
-      }
+      const payload = await apiPost(
+        "/predict",
+        { symptoms: selectedSymptoms },
+        "Prediction failed",
+      );
 
       setResult(payload);
       setHistory((current) => [
