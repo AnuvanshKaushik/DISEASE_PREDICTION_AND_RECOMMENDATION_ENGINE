@@ -1,11 +1,20 @@
 const ML_SERVICE_HOST = process.env.ML_SERVICE_HOST || "127.0.0.1";
 const ML_SERVICE_PORT = process.env.ML_SERVICE_PORT || "8000";
+const ML_SERVICE_HOSTPORT = process.env.ML_SERVICE_HOSTPORT;
+
+function normalizeBaseUrl(baseUrl) {
+  return baseUrl.replace(/\/+$/, "");
+}
 
 function buildMlServiceCandidates() {
   const candidates = [];
 
   if (process.env.ML_SERVICE_URL) {
-    candidates.push(process.env.ML_SERVICE_URL);
+    candidates.push(normalizeBaseUrl(process.env.ML_SERVICE_URL));
+  }
+
+  if (ML_SERVICE_HOSTPORT) {
+    candidates.push(`http://${ML_SERVICE_HOSTPORT}`);
   }
 
   candidates.push(`http://${ML_SERVICE_HOST}:${ML_SERVICE_PORT}`);

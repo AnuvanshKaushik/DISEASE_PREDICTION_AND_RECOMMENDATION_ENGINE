@@ -32,6 +32,17 @@ def create_app() -> Flask:
 
     warm_up_model(model, model_type, len(symptoms))
 
+    @app.get("/")
+    def index():
+        return jsonify(
+            {
+                "status": "ok",
+                "service": "ml-service",
+                "message": "This is the private ML service. Open the Node frontend/API service for the web app.",
+                "endpoints": ["/health", "/metadata", "/predict"],
+            }
+        )
+
     @app.get("/health")
     def health():
         return jsonify(

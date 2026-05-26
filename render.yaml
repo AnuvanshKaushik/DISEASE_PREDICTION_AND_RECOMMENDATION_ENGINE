@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: pulsepredict-api
+    name: disease-prediction-and-recommendation
     runtime: node
     plan: free
     buildCommand: npm install --prefix server
@@ -15,19 +15,24 @@ services:
         sync: false
       - key: MONGODB_DB
         value: disease_prediction_engine
+      - key: ML_SERVICE_HOSTPORT
+        fromService:
+          name: disease-prediction-and-recommendation-ml
+          type: web
+          property: hostport
       - key: ML_SERVICE_HOST
         fromService:
-          name: pulsepredict-ml
+          name: disease-prediction-and-recommendation-ml
           type: web
           property: host
       - key: ML_SERVICE_PORT
         fromService:
-          name: pulsepredict-ml
+          name: disease-prediction-and-recommendation-ml
           type: web
           property: port
 
   - type: web
-    name: pulsepredict-ml
+    name: disease-prediction-and-recommendation-ml
     runtime: python
     plan: free
     buildCommand: pip install -r ml_service/requirements.txt

@@ -92,6 +92,14 @@ This repository includes [render.yaml](c:/Users/kaush/Downloads/Anuvansh/Disease
 - one Node web service for the API and frontend
 - one Python web service for the ML model
 
+The public app URL should be the Node service:
+
+```text
+https://disease-prediction-and-recommendation.onrender.com
+```
+
+The Python service is only the backing ML API. If you open the ML service URL directly, it will show service metadata instead of the React app.
+
 ### Before deploy
 
 1. Push the latest code to GitHub.
@@ -101,7 +109,20 @@ This repository includes [render.yaml](c:/Users/kaush/Downloads/Anuvansh/Disease
 ### Render environment values
 
 - `MONGODB_URI`: your MongoDB Atlas connection string
-- `CLIENT_ORIGIN`: your Render frontend/backend URL, for example `https://pulsepredict-api.onrender.com`
+- `CLIENT_ORIGIN`: your Render frontend/backend URL, for example `https://disease-prediction-and-recommendation.onrender.com`
+
+The `ML_SERVICE_HOSTPORT`, `ML_SERVICE_HOST`, and `ML_SERVICE_PORT` values are filled automatically by the Blueprint from the ML service.
+
+### If you see Flask "Not Found"
+
+That means the browser is hitting the Python ML service or a manually created Python-only Render service. Deploy from the Blueprint, then open the Node service URL. The Node service uses:
+
+```text
+Build Command: npm install --prefix server
+Start Command: npm --prefix server start
+```
+
+If you already created a Python service named `disease-prediction-and-recommendation`, delete or rename that service before syncing this Blueprint, then redeploy from the Blueprint so the Node service owns that URL.
 
 ### Render Python version
 
