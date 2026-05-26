@@ -32,68 +32,33 @@ def create_app() -> Flask:
 
     warm_up_model(model, model_type, len(symptoms))
 
-    @app.get("/")
-    def index():
-        return jsonify(
-            {
-                "status": "ok",
-                "service": "ml-service",
-                "message": "This is the private ML service. Open the Node frontend/API service for the web app.",
-                "nodeApiUrl": "https://disease-prediction-and-recommendation-api.onrender.com/api/health",
-                "endpoints": ["/health", "/metadata", "/predict"],
-            }
-        )
+    def health_payload():
+        return {
+            "status": "ok",
+            "service": "ml-service",
+            "modelLoaded": True,
+            "modelType": app.config["MODEL_TYPE"],
+            "featureCount": len(app.config["SYMPTOMS"]),
+            "diseaseCount": len(app.config["DISEASE_LABELS"]),
+        }
 
-    @app.route("/api/<path:_path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-    def wrong_api_service(_path):
-        return (
-            jsonify(
-                {
-                    "status": "wrong-service",
-                    "service": "ml-service",
-                    "message": "This URL is the ML service. Use the Node API service for /api routes.",
-                    "nodeApiUrl": "https://disease-prediction-and-recommendation-api.onrender.com/api/health",
-                }
-            ),
-            421,
-        )
+    def metadata_payload():
+        return {
+            "symptoms": app.config["SYMPTOMS"],
+            "diseaseCount": len(app.config["DISEASE_LABELS"]),
+            "modelPath": app.config["MODEL_PATH"],
+        }
 
-    @app.get("/health")
-    def health():
-        return jsonify(
-            {
-                "status": "ok",
-                "service": "ml-service",
-                "modelLoaded": True,
-                "modelType": app.config["MODEL_TYPE"],
-                "featureCount": len(app.config["SYMPTOMS"]),
-                "diseaseCount": len(app.config["DISEASE_LABELS"]),
-            }
-        )
-
-    @app.get("/metadata")
-    def metadata():
-        return jsonify(
-            {
-                "symptoms": app.config["SYMPTOMS"],
-                "diseaseCount": len(app.config["DISEASE_LABELS"]),
-                "modelPath": app.config["MODEL_PATH"],
-            }
-        )
-
-    @app.post("/predict")
-    def predict():
-        payload = request.get_json(silent=True) or {}
-
+    def prediction_payload(payload: Dict):
         try:
             feature_vector = build_feature_vector(payload, app.config["SYMPTOMS"])
             probabilities = run_inference(
                 app.config["MODEL"], app.config["MODEL_TYPE"], feature_vector
             )
         except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return {"error": str(exc)}, 400
         except Exception as exc:  # pragma: no cover
-            return jsonify({"error": f"Prediction failed: {exc}"}), 500
+            return {"error": f"Prediction failed: {exc}"}, 500
 
         top_indices = np.argsort(probabilities)[::-1][:5]
         labels = app.config["DISEASE_LABELS"]
@@ -122,13 +87,70 @@ def create_app() -> Flask:
                 }
             )
 
+        return {
+            "prediction": top_predictions[0],
+            "topPredictions": top_predictions,
+            "selectedSymptoms": payload.get("symptoms", []),
+        }, 200
+
+    @app.get("/")
+    def index():
         return jsonify(
             {
-                "prediction": top_predictions[0],
-                "topPredictions": top_predictions,
-                "selectedSymptoms": payload.get("symptoms", []),
+                "status": "ok",
+                "service": "ml-service",
+                "message": "ML service is live. Vercel can proxy /api routes here for predictions.",
+                "apiBaseUrl": "https://disease-prediction-and-recommendation.onrender.com/api",
+                "optionalNodeApiUrl": "https://disease-prediction-and-recommendation-api.onrender.com/api/health",
+                "endpoints": [
+                    "/health",
+                    "/metadata",
+                    "/predict",
+                    "/api/health",
+                    "/api/metadata",
+                    "/api/history",
+                    "/api/predict",
+                ],
             }
         )
+
+    @app.get("/health")
+    def health():
+        return jsonify(health_payload())
+
+    @app.get("/api/health")
+    def api_health():
+        payload = health_payload()
+        payload["compatibilityRoute"] = True
+        return jsonify(payload)
+
+    @app.get("/metadata")
+    def metadata():
+        return jsonify(metadata_payload())
+
+    @app.get("/api/metadata")
+    def api_metadata():
+        return jsonify(metadata_payload())
+
+    @app.get("/api/history")
+    def api_history():
+        return jsonify([])
+
+    @app.post("/predict")
+    def predict():
+        payload = request.get_json(silent=True) or {}
+        response_payload, status = prediction_payload(payload)
+        return jsonify(response_payload), status
+
+    @app.post("/api/predict")
+    def api_predict():
+        payload = request.get_json(silent=True) or {}
+        response_payload, status = prediction_payload(payload)
+        return jsonify(response_payload), status
+
+    @app.route("/api/<path:_path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def unknown_api_route(_path):
+        return jsonify({"error": "API route not found"}), 404
 
     return app
 

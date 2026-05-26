@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://disease-prediction-and-recommendation-api.onrender.com/api/:path*"
+      "destination": "https://disease-prediction-and-recommendation.onrender.com/api/:path*"
     },
     {
       "source": "/src/:path*",

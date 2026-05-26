@@ -87,18 +87,18 @@ You can also skip the standalone client server and open the app directly from th
 
 ## Deploy On Render
 
-This repository includes [render.yaml](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/render.yaml) so you can deploy the app as:
+This repository includes [render.yaml](c:/Users/kaush/Downloads/Anuvansh/DiseasePredAndRecEngine/render.yaml) so you can deploy the full app as:
 
 - one Node web service for the API and frontend
 - one Python web service for the ML model
 
-The public API/frontend URL should be the Node service:
+For the current Vercel deployment, the frontend proxies directly to the live Python ML service:
 
 ```text
-https://disease-prediction-and-recommendation-api.onrender.com
+https://disease-prediction-and-recommendation.onrender.com
 ```
 
-The Python service is only the backing ML API. If you open the ML service URL directly, it will show service metadata instead of the React app. If you previously deployed `https://disease-prediction-and-recommendation.onrender.com` as a Python service, leave it alone or delete it; the frontend now proxies to the fresh `-api` Node service.
+The Python service supports both native ML routes like `/health` and frontend-compatible routes like `/api/health`, `/api/metadata`, `/api/history`, and `/api/predict`. The optional Node service is still useful if you want MongoDB-backed prediction history.
 
 ### Before deploy
 
@@ -115,24 +115,30 @@ The `ML_SERVICE_HOSTPORT`, `ML_SERVICE_HOST`, and `ML_SERVICE_PORT` values are f
 
 ### If you see Flask "Not Found"
 
-That means the browser is hitting the Python ML service or a manually created Python-only Render service. Deploy from the Blueprint, then open the Node service URL:
+That means the deployed Python service has not received the latest compatibility routes yet. Push the latest code and redeploy the Python service, then test:
 
 ```text
-https://disease-prediction-and-recommendation-api.onrender.com/api/health
+https://disease-prediction-and-recommendation.onrender.com/api/health
 ```
 
-The Node service uses:
+Expected JSON:
+
+```json
+{"status":"ok","service":"ml-service"}
+```
+
+If you also deploy the optional Node service for MongoDB history, it uses:
 
 ```text
 Build Command: npm install --prefix server
 Start Command: npm --prefix server start
 ```
 
-If you already created a Python service named `disease-prediction-and-recommendation`, it is the wrong backend URL for `/api/*`. The current Blueprint creates a separate Node service named `disease-prediction-and-recommendation-api` to avoid that collision.
+The optional Node service name in the Blueprint is `disease-prediction-and-recommendation-api`.
 
 ## Deploy Frontend On Vercel
 
-The Vercel deployment is only the frontend. The backend still needs the Render Node service and Render ML service running.
+The Vercel deployment is only the frontend. The backend still needs the Render Python ML service running.
 
 This repo includes two Vercel configs:
 
@@ -148,10 +154,10 @@ Both configs proxy browser requests from:
 to:
 
 ```text
-https://disease-prediction-and-recommendation-api.onrender.com/api/*
+https://disease-prediction-and-recommendation.onrender.com/api/*
 ```
 
-If Vercel shows `Unexpected token 'T'`, it means `/api/metadata` returned Vercel's text 404 page instead of backend JSON. Redeploy after pushing the Vercel config files, and make sure the Render Node service is live.
+If Vercel shows `Unexpected token 'T'`, it means `/api/metadata` returned a text 404 page instead of backend JSON. Redeploy after pushing the Vercel config files and the Flask compatibility routes, and make sure the Render Python service is live.
 
 ### Render Python version
 
