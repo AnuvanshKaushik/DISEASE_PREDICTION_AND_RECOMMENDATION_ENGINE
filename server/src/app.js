@@ -7,8 +7,8 @@ import predictionRoutes from "./routes/predictionRoutes.js";
 
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, "..", "..");
-const clientRoot = path.join(projectRoot, "client");
+// Resolve from server/src to server/.. (project root) to client
+const clientRoot = path.resolve(__dirname, "../../client");
 
 app.use(
   cors({
@@ -28,13 +28,17 @@ app.get("/api/health", (_req, res) => {
 app.use("/api", predictionRoutes);
 app.use(express.static(clientRoot));
 
-app.get("*", (req, res, next) => {
-  if (req.path.startsWith("/api")) {
-    next();
-    return;
-  }
-
-  res.sendFile(path.join(clientRoot, "index.html"));
+app.get("*", (req, res) => {
+  const indexPath = path.join(clientRoot, "index.html");
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error(`Failed to send ${indexPath}:`, err.message);
+      res.status(404).json({
+        error: "Not found",
+        path: req.path,
+      });
+    }
+  });
 });
 
 app.use((err, _req, res, _next) => {
