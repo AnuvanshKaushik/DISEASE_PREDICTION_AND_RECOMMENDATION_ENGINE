@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: disease-prediction-and-recommendation
+    name: disease-prediction-and-recommendation-api
     runtime: node
     plan: free
     buildCommand: npm install --prefix server

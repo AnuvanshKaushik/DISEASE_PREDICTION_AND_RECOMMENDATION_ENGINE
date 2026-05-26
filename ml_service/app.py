@@ -39,8 +39,23 @@ def create_app() -> Flask:
                 "status": "ok",
                 "service": "ml-service",
                 "message": "This is the private ML service. Open the Node frontend/API service for the web app.",
+                "nodeApiUrl": "https://disease-prediction-and-recommendation-api.onrender.com/api/health",
                 "endpoints": ["/health", "/metadata", "/predict"],
             }
+        )
+
+    @app.route("/api/<path:_path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def wrong_api_service(_path):
+        return (
+            jsonify(
+                {
+                    "status": "wrong-service",
+                    "service": "ml-service",
+                    "message": "This URL is the ML service. Use the Node API service for /api routes.",
+                    "nodeApiUrl": "https://disease-prediction-and-recommendation-api.onrender.com/api/health",
+                }
+            ),
+            421,
         )
 
     @app.get("/health")
