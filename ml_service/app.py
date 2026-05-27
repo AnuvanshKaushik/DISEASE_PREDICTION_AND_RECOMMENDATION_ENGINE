@@ -1,136 +1,69 @@
 import csv
 import json
 import os
+import threading
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
-import joblib
-import numpy as np
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
+
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+CLIENT_DIR = BASE_DIR / "client"
 MODEL_DIR = BASE_DIR / "model"
 DATASET_PATH = BASE_DIR / "Dataset" / "Final_Augmented_dataset_Diseases_and_Symptoms.csv"
 DESCRIPTION_PATH = BASE_DIR / "Dataset" / "Description.csv"
 METADATA_PATH = MODEL_DIR / "metadata.json"
 
+MODEL_CACHE: Dict[str, Any] = {
+    "model": None,
+    "model_type": None,
+    "model_path": None,
+    "error": None,
+}
+MODEL_LOCK = threading.Lock()
+
 
 def create_app() -> Flask:
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder=str(CLIENT_DIR / "src"), static_url_path="/src")
 
-    model, model_type, model_path = load_model_artifact(MODEL_DIR)
-    symptoms, disease_labels = load_dataset_metadata(DATASET_PATH, METADATA_PATH)
+    symptoms, disease_labels, metadata_error = load_dataset_metadata_safely(
+        DATASET_PATH,
+        METADATA_PATH,
+    )
     descriptions = load_descriptions(DESCRIPTION_PATH)
 
-    app.config["MODEL"] = model
-    app.config["MODEL_TYPE"] = model_type
-    app.config["MODEL_PATH"] = str(model_path)
     app.config["SYMPTOMS"] = symptoms
     app.config["DISEASE_LABELS"] = disease_labels
     app.config["DESCRIPTIONS"] = descriptions
-
-    warm_up_model(model, model_type, len(symptoms))
-
-    def health_payload():
-        return {
-            "status": "ok",
-            "service": "ml-service",
-            "modelLoaded": True,
-            "modelType": app.config["MODEL_TYPE"],
-            "featureCount": len(app.config["SYMPTOMS"]),
-            "diseaseCount": len(app.config["DISEASE_LABELS"]),
-        }
-
-    def metadata_payload():
-        return {
-            "symptoms": app.config["SYMPTOMS"],
-            "diseaseCount": len(app.config["DISEASE_LABELS"]),
-            "modelPath": app.config["MODEL_PATH"],
-        }
-
-    def prediction_payload(payload: Dict):
-        try:
-            feature_vector = build_feature_vector(payload, app.config["SYMPTOMS"])
-            probabilities = run_inference(
-                app.config["MODEL"], app.config["MODEL_TYPE"], feature_vector
-            )
-        except ValueError as exc:
-            return {"error": str(exc)}, 400
-        except Exception as exc:  # pragma: no cover
-            return {"error": f"Prediction failed: {exc}"}, 500
-
-        top_indices = np.argsort(probabilities)[::-1][:5]
-        labels = app.config["DISEASE_LABELS"]
-        descriptions = app.config["DESCRIPTIONS"]
-
-        top_predictions = []
-        for index in top_indices:
-            disease_name = labels[index]
-            disease_meta = descriptions.get(disease_name, {})
-            top_predictions.append(
-                {
-                    "disease": disease_name,
-                    "confidence": round(float(probabilities[index]) * 100, 2),
-                    "description": disease_meta.get(
-                        "description",
-                        "No description available for this disease.",
-                    ),
-                    "precautions": disease_meta.get(
-                        "precautions",
-                        "Consult a qualified medical professional for next steps.",
-                    ),
-                    "specialist": disease_meta.get(
-                        "specialist",
-                        "Primary care physician",
-                    ),
-                }
-            )
-
-        return {
-            "prediction": top_predictions[0],
-            "topPredictions": top_predictions,
-            "selectedSymptoms": payload.get("symptoms", []),
-        }, 200
+    app.config["METADATA_ERROR"] = metadata_error
 
     @app.get("/")
     def index():
-        return jsonify(
-            {
-                "status": "ok",
-                "service": "ml-service",
-                "message": "ML service is live. Vercel can proxy /api routes here for predictions.",
-                "apiBaseUrl": "https://disease-prediction-and-recommendation.onrender.com/api",
-                "optionalNodeApiUrl": "https://disease-prediction-and-recommendation-api.onrender.com/api/health",
-                "endpoints": [
-                    "/health",
-                    "/metadata",
-                    "/predict",
-                    "/api/health",
-                    "/api/metadata",
-                    "/api/history",
-                    "/api/predict",
-                ],
-            }
-        )
+        return serve_client_or_status()
 
     @app.get("/health")
     def health():
-        return jsonify(health_payload())
+        return jsonify(health_payload(app))
 
     @app.get("/api/health")
     def api_health():
-        payload = health_payload()
+        payload = health_payload(app)
         payload["compatibilityRoute"] = True
         return jsonify(payload)
 
     @app.get("/metadata")
     def metadata():
-        return jsonify(metadata_payload())
+        payload, status = metadata_payload(app)
+        return jsonify(payload), status
 
     @app.get("/api/metadata")
     def api_metadata():
-        return jsonify(metadata_payload())
+        payload, status = metadata_payload(app)
+        return jsonify(payload), status
 
     @app.get("/api/history")
     def api_history():
@@ -139,23 +72,154 @@ def create_app() -> Flask:
     @app.post("/predict")
     def predict():
         payload = request.get_json(silent=True) or {}
-        response_payload, status = prediction_payload(payload)
+        response_payload, status = prediction_payload(app, payload)
         return jsonify(response_payload), status
 
     @app.post("/api/predict")
     def api_predict():
         payload = request.get_json(silent=True) or {}
-        response_payload, status = prediction_payload(payload)
+        response_payload, status = prediction_payload(app, payload)
         return jsonify(response_payload), status
 
     @app.route("/api/<path:_path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     def unknown_api_route(_path):
         return jsonify({"error": "API route not found"}), 404
 
+    @app.get("/<path:path>")
+    def client_fallback(path):
+        requested_file = CLIENT_DIR / path
+        if requested_file.is_file():
+            return send_from_directory(CLIENT_DIR, path)
+        return serve_client_or_status()
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(error):
+        app.logger.exception("Unhandled application error")
+        return jsonify({"error": "Unexpected server error", "details": str(error)}), 500
+
     return app
 
 
-def load_model_artifact(model_dir: Path):
+def serve_client_or_status():
+    if (CLIENT_DIR / "index.html").exists():
+        return send_from_directory(CLIENT_DIR, "index.html")
+
+    return jsonify(
+        {
+            "status": "ok",
+            "service": "ml-service",
+            "message": "ML service is live.",
+            "endpoints": [
+                "/health",
+                "/metadata",
+                "/predict",
+                "/api/health",
+                "/api/metadata",
+                "/api/history",
+                "/api/predict",
+            ],
+        }
+    )
+
+
+def health_payload(app: Flask) -> Dict[str, Any]:
+    model_path = find_model_path(MODEL_DIR)
+    payload = {
+        "status": "ok",
+        "service": "ml-service",
+        "metadataLoaded": app.config["METADATA_ERROR"] is None,
+        "modelAvailable": model_path is not None,
+        "modelLoaded": MODEL_CACHE["model"] is not None,
+        "modelPath": str(model_path) if model_path else None,
+        "featureCount": len(app.config["SYMPTOMS"]),
+        "diseaseCount": len(app.config["DISEASE_LABELS"]),
+    }
+
+    if app.config["METADATA_ERROR"]:
+        payload["metadataError"] = app.config["METADATA_ERROR"]
+    if MODEL_CACHE["error"]:
+        payload["modelLoadError"] = MODEL_CACHE["error"]
+
+    return payload
+
+
+def metadata_payload(app: Flask) -> Tuple[Dict[str, Any], int]:
+    if app.config["METADATA_ERROR"]:
+        return {
+            "error": "Metadata is not available",
+            "details": app.config["METADATA_ERROR"],
+        }, 503
+
+    return {
+        "symptoms": app.config["SYMPTOMS"],
+        "diseaseCount": len(app.config["DISEASE_LABELS"]),
+        "modelPath": str(find_model_path(MODEL_DIR)) if find_model_path(MODEL_DIR) else None,
+    }, 200
+
+
+def prediction_payload(app: Flask, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+    if app.config["METADATA_ERROR"]:
+        return {
+            "error": "Metadata is not available",
+            "details": app.config["METADATA_ERROR"],
+        }, 503
+
+    try:
+        feature_vector = build_feature_vector(payload, app.config["SYMPTOMS"])
+        model, model_type, _model_path = get_model_artifact(MODEL_DIR)
+        probabilities = run_inference(model, model_type, feature_vector)
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+    except FileNotFoundError as exc:
+        return {"error": "Model file was not found", "details": str(exc)}, 503
+    except ImportError as exc:
+        return {"error": "Model dependency is not available", "details": str(exc)}, 503
+    except RuntimeError as exc:
+        return {"error": "Model could not be loaded", "details": str(exc)}, 503
+    except Exception as exc:  # pragma: no cover
+        return {"error": "Prediction failed", "details": str(exc)}, 500
+
+    labels = app.config["DISEASE_LABELS"]
+    descriptions = app.config["DESCRIPTIONS"]
+    top_indices = probabilities.argsort()[::-1][:5]
+    top_predictions = []
+
+    for index in top_indices:
+        if index >= len(labels):
+            continue
+
+        disease_name = labels[index]
+        disease_meta = descriptions.get(disease_name, {})
+        top_predictions.append(
+            {
+                "disease": disease_name,
+                "confidence": round(float(probabilities[index]) * 100, 2),
+                "description": disease_meta.get(
+                    "description",
+                    "No description available for this disease.",
+                ),
+                "precautions": disease_meta.get(
+                    "precautions",
+                    "Consult a qualified medical professional for next steps.",
+                ),
+                "specialist": disease_meta.get(
+                    "specialist",
+                    "Primary care physician",
+                ),
+            }
+        )
+
+    if not top_predictions:
+        return {"error": "Prediction returned no disease labels."}, 500
+
+    return {
+        "prediction": top_predictions[0],
+        "topPredictions": top_predictions,
+        "selectedSymptoms": payload.get("symptoms", []),
+    }, 200
+
+
+def find_model_path(model_dir: Path) -> Path | None:
     candidates = [
         model_dir / "model.pkl",
         model_dir / "model.joblib",
@@ -163,28 +227,63 @@ def load_model_artifact(model_dir: Path):
         model_dir / "model.h5",
     ]
 
-    model_path = next((path for path in candidates if path.exists()), None)
-    if model_path is None:
-        raise FileNotFoundError(
-            f"No supported model file found in {model_dir}. "
-            "Expected model.pkl, model.joblib, optimized_disease_prediction_model.h5, or model.h5."
-        )
+    return next((path for path in candidates if path.exists()), None)
 
+
+def get_model_artifact(model_dir: Path):
+    if MODEL_CACHE["model"] is not None:
+        return MODEL_CACHE["model"], MODEL_CACHE["model_type"], MODEL_CACHE["model_path"]
+
+    with MODEL_LOCK:
+        if MODEL_CACHE["model"] is not None:
+            return MODEL_CACHE["model"], MODEL_CACHE["model_type"], MODEL_CACHE["model_path"]
+
+        model_path = find_model_path(model_dir)
+        if model_path is None:
+            raise FileNotFoundError(
+                f"No supported model file found in {model_dir}. "
+                "Expected model.pkl, model.joblib, optimized_disease_prediction_model.h5, or model.h5."
+            )
+
+        try:
+            model, model_type = load_model_file(model_path)
+        except Exception as exc:
+            MODEL_CACHE["error"] = str(exc)
+            raise RuntimeError(str(exc)) from exc
+
+        MODEL_CACHE["model"] = model
+        MODEL_CACHE["model_type"] = model_type
+        MODEL_CACHE["model_path"] = str(model_path)
+        MODEL_CACHE["error"] = None
+
+        return MODEL_CACHE["model"], MODEL_CACHE["model_type"], MODEL_CACHE["model_path"]
+
+
+def load_model_file(model_path: Path):
     suffix = model_path.suffix.lower()
+
     if suffix in {".pkl", ".joblib"}:
-        return joblib.load(model_path), "sklearn", model_path
+        import joblib
+
+        return joblib.load(model_path), "sklearn"
 
     if suffix == ".h5":
-        try:
-            from tensorflow.keras.models import load_model  # type: ignore
-        except ImportError as exc:  # pragma: no cover
-            raise ImportError(
-                "TensorFlow is required to load the current .h5 model artifact."
-            ) from exc
+        from tensorflow.keras.models import load_model
 
-        return load_model(model_path, compile=False), "keras", model_path
+        return load_model(model_path, compile=False), "keras"
 
     raise ValueError(f"Unsupported model format: {model_path.name}")
+
+
+def load_dataset_metadata_safely(
+    dataset_path: Path,
+    metadata_path: Path,
+) -> Tuple[List[str], List[str], str | None]:
+    try:
+        symptoms, disease_labels = load_dataset_metadata(dataset_path, metadata_path)
+        return symptoms, disease_labels, None
+    except Exception as exc:
+        return [], [], str(exc)
 
 
 def load_dataset_metadata(dataset_path: Path, metadata_path: Path) -> Tuple[List[str], List[str]]:
@@ -208,6 +307,9 @@ def load_dataset_metadata(dataset_path: Path, metadata_path: Path) -> Tuple[List
 
 def load_descriptions(description_path: Path) -> Dict[str, Dict[str, str]]:
     description_map: Dict[str, Dict[str, str]] = {}
+    if not description_path.exists():
+        return description_map
+
     with description_path.open(newline="", encoding="utf-8") as description_file:
         reader = csv.DictReader(description_file)
         for row in reader:
@@ -223,7 +325,9 @@ def load_descriptions(description_path: Path) -> Dict[str, Dict[str, str]]:
     return description_map
 
 
-def build_feature_vector(payload: Dict, symptoms: List[str]) -> np.ndarray:
+def build_feature_vector(payload: Dict[str, Any], symptoms: List[str]):
+    import numpy as np
+
     symptom_index = {symptom: idx for idx, symptom in enumerate(symptoms)}
     vector = np.zeros(len(symptoms), dtype=np.float32)
 
@@ -255,7 +359,9 @@ def build_feature_vector(payload: Dict, symptoms: List[str]) -> np.ndarray:
     return vector.reshape(1, -1)
 
 
-def run_inference(model, model_type: str, feature_vector: np.ndarray) -> np.ndarray:
+def run_inference(model, model_type: str, feature_vector):
+    import numpy as np
+
     if model_type == "keras":
         probabilities = model.predict(feature_vector, verbose=0)[0]
         return np.asarray(probabilities, dtype=np.float32)
@@ -265,24 +371,21 @@ def run_inference(model, model_type: str, feature_vector: np.ndarray) -> np.ndar
         return np.asarray(probabilities, dtype=np.float32)
 
     prediction = model.predict(feature_vector)
-    class_index = int(prediction[0])
-    probabilities = np.zeros(len(model.classes_), dtype=np.float32)
-    probabilities[class_index] = 1.0
+    classes = list(getattr(model, "classes_", []))
+    probabilities = np.zeros(len(classes), dtype=np.float32)
+
+    if classes:
+        class_label = prediction[0]
+        class_index = classes.index(class_label) if class_label in classes else int(class_label)
+        probabilities[class_index] = 1.0
+
     return probabilities
-
-
-def warm_up_model(model, model_type: str, feature_count: int) -> None:
-    try:
-        zero_vector = np.zeros((1, feature_count), dtype=np.float32)
-        run_inference(model, model_type, zero_vector)
-    except Exception as exc:  # pragma: no cover
-        print(f"Model warm-up skipped: {exc}")
 
 
 app = create_app()
 
 
 if __name__ == "__main__":
-    host = os.getenv("ML_SERVICE_HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", os.getenv("ML_SERVICE_PORT", "8000")))
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", 10000))
     app.run(host=host, port=port, debug=False)

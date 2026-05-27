@@ -1,43 +1,15 @@
 services:
   - type: web
-    name: disease-prediction-and-recommendation-api
-    runtime: node
-    plan: free
-    buildCommand: npm install --prefix server
-    startCommand: npm --prefix server start
-    healthCheckPath: /api/health
-    envVars:
-      - key: NODE_VERSION
-        value: 20.12.2
-      - key: CLIENT_ORIGIN
-        sync: false
-      - key: MONGODB_URI
-        sync: false
-      - key: MONGODB_DB
-        value: disease_prediction_engine
-      - key: ML_SERVICE_HOSTPORT
-        fromService:
-          name: disease-prediction-and-recommendation-ml
-          type: web
-          property: hostport
-      - key: ML_SERVICE_HOST
-        fromService:
-          name: disease-prediction-and-recommendation-ml
-          type: web
-          property: host
-      - key: ML_SERVICE_PORT
-        fromService:
-          name: disease-prediction-and-recommendation-ml
-          type: web
-          property: port
-
-  - type: web
-    name: disease-prediction-and-recommendation-ml
+    name: disease-prediction-and-recommendation
     runtime: python
     plan: free
-    buildCommand: pip install -r ml_service/requirements.txt
-    startCommand: gunicorn --chdir ml_service --workers 1 --timeout 180 --bind 0.0.0.0:$PORT app:app
+    buildCommand: python -m pip install --upgrade pip && pip install -r ml_service/requirements.txt
+    startCommand: gunicorn --chdir ml_service --workers 1 --threads 2 --timeout 240 --bind 0.0.0.0:${PORT:-10000} app:app
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13.5
+        value: 3.12.8
+      - key: CUDA_VISIBLE_DEVICES
+        value: "-1"
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "2"
